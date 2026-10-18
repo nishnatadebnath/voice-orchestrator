@@ -16,17 +16,18 @@ service use the same orchestration flow and XML-backed specialist prompts.
 ## Quick start
 
 Use Python 3.9 or later. From the repository root, create and activate a
-virtual environment, then install the runtime packages and the test dependency:
+virtual environment, then install the API runtime packages and `rich` for the
+text CLI:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install fastapi "uvicorn[standard]" "pydantic>=2" python-dotenv google-genai rich
 python -m pip install -r requirements.txt
+python -m pip install rich
 ```
 
-`requirements.txt` currently installs pytest only; the runtime packages above
-are imported by the application but are not yet listed in that file.
+`requirements.txt` contains the runtime packages required by the FastAPI API.
+It does not include CLI-only or voice-only dependencies.
 
 Create a `.env` file in the repository root and add your Gemini API key:
 

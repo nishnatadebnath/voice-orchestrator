@@ -5,15 +5,15 @@ directory `app/prompts`.
 
 ## Install
 
-The source uses Python 3.9+ syntax and Pydantic v2 APIs. The repository does
-not currently declare runtime dependencies in `requirements.txt` (it lists
-pytest only), so install the application packages explicitly:
+The source uses Python 3.9+ syntax and Pydantic v2 APIs. Install the API
+runtime dependencies from `requirements.txt`; install `rich` separately for
+the interactive text CLI:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install fastapi "uvicorn[standard]" "pydantic>=2" python-dotenv google-genai rich
 python -m pip install -r requirements.txt
+python -m pip install rich
 ```
 
 On Windows PowerShell, activate the environment with:
