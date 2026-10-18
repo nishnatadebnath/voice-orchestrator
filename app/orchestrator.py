@@ -3,7 +3,8 @@
 
 import logging
 
-from app.bots.specialists import SalesBot, PersonalLoanBot
+from app.bots.specialists import GoldLoanBot, PersonalLoanBot, SalesBot
+from app.guardrails import validate_chat_input
 from app.llm.base import LLMClient
 from app.memory import SessionStore
 from app.router import IntentRouter
@@ -22,6 +23,7 @@ class Orchestrator:
         self.bots = {
             "sales": SalesBot(llm_client),
             "personal_loan": PersonalLoanBot(llm_client),
+            "gold_loan": GoldLoanBot(llm_client),
         }
         self.session_store = session_store
         self.router = IntentRouter(llm_client)
@@ -29,18 +31,18 @@ class Orchestrator:
 
     def handle_message(self, session_id: str, message: str) -> str:
         """Process a message and record the conversation exchange."""
-        logger.warning("Orchestrator.handle_message() called")
+        validate_chat_input(session_id, message)
 
-
-        # Retrieve history from before the current turn.
-        history = self.session_store.get_history(session_id)
-
-        # Record the incoming user message.
-        self.session_store.add_message(session_id, "user", message)
-
-        # Route the message to the appropriate specialist.
         active_bot = self.session_store.get_active_bot(session_id)
-        decision = self.router.route(message, active_bot)
+        router_context = self.session_store.get_memory(session_id)
+
+        decision = self.router.route(
+            message,
+            active_bot,
+            router_context,
+        )
+
+        self.session_store.add_message(session_id, "user", message)
         target_bot = decision.target_bot.value
 
         logger.info(
@@ -81,9 +83,51 @@ class Orchestrator:
         # Update the active specialist and generate the response.
         self.session_store.set_active_bot(session_id, target_bot)
 
-        response = bot.respond(message, formatted_prompt, history)
+        relevant_history = [
+            router_context[item.message_index]
+            for item in decision.relevant_context
+            if 0 <= item.message_index < len(router_context)
+            and item.relevance_score >= 0.5
+        ]
+
+        existing_memory = self.session_store.get_memory(session_id)
+
+        merged_memory = self._merge_memory(
+            existing_memory,
+            relevant_history,
+        )
+
+        self.session_store.set_memory(session_id, merged_memory)
+
+        response = bot.respond(
+            message,
+            formatted_prompt,
+            self.session_store.get_memory(session_id),
+        )
 
         # Record the assistant response.
         self.session_store.add_message(session_id, "assistant", response)
 
         return response
+
+    def _merge_memory(
+        self,
+        existing_memory: list[dict],
+        new_messages: list[dict],
+        max_messages: int = 20,
+    ) -> list[dict]:
+        """Merge unique messages and retain the most recent entries."""
+
+        merged = list(existing_memory)
+        seen = {
+            (item["role"], item["content"])
+            for item in existing_memory
+        }
+
+        for item in new_messages:
+            key = (item["role"], item["content"])
+
+            if key not in seen:
+                merged.append(item)
+                seen.add(key)
+        return merged[-max_messages:]

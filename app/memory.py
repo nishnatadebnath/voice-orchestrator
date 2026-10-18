@@ -14,6 +14,7 @@ class SessionStore:
             self.sessions[session_id] = {
                 "active_bot": "sales",
                 "history": [],
+                "memory": [],
             }
 
         return self.sessions[session_id]
@@ -45,3 +46,18 @@ class SessionStore:
         """Return the conversation history for a session."""
         session = self._get_or_create_session(session_id)
         return session["history"]
+    
+    def get_memory(self, session_id: str) -> list[dict]:
+        """Return curated memory for a session."""
+        session = self._get_or_create_session(session_id)
+        return session["memory"]
+
+
+    def set_memory(
+        self,
+        session_id: str,
+        messages: list[dict],
+    ) -> None:
+        """Replace curated memory with the selected messages."""
+        session = self._get_or_create_session(session_id)
+        session["memory"] = list(messages)

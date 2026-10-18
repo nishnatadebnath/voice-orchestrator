@@ -5,38 +5,67 @@ import json
 import re
 
 from app.llm.base import LLMClient
-from app.models import BotName, RoutingDecision
+from app.models import RoutingDecision
 
 
 class IntentRouter:
     def __init__(self, llm_client: LLMClient):
         self.llm_client = llm_client
 
-    def route(self, message: str, active_bot: str) -> RoutingDecision:
+    def route(
+        self,
+        message: str,
+        active_bot: str,
+        history: list[dict[str, str]],
+    ) -> RoutingDecision:
+
         routing_prompt = """
-You are an intent classifier for a multi-bot assistant.
+You are the intent router for a multi-bot assistant.
 
 Available bots:
-- sales: questions about products, product discovery, and general sales enquiries.
-- personal_loan: questions about personal loans, borrowing money, loan eligibility,
-  loan application, interest rates, and repayment.
+- sales: product discovery and general sales enquiries.
+- personal_loan: personal loans, eligibility, applications,
+  interest rates, and repayments.
+- gold_loan: gold-backed loans, eligibility, valuation,
+  loan amounts, interest rates, and repayments.
 
-Choose exactly one bot based on the user's intent.
-If the message is ambiguous or unrelated, prefer the active bot.
-Never answer the user. Only classify the intent.
+Your responsibilities:
 
-Return a JSON object with:
-- target_bot: "sales" or "personal_loan"
-- reason: a short explanation
-- confidence: a number between 0.0 and 1.0 indicating confidence
+1. Select exactly one destination bot based on the user's latest message
+   and the conversation context.
+2. If the intent is ambiguous or unrelated, prefer the active bot.
+3. Never answer the user. Only produce the routing decision.
+4. Assess how relevant each previous message is to the selected bot.
+5. Score relevance from 0.0 to 1.0:
+   - 0.0: irrelevant to the destination bot.
+   - 0.5: potentially useful context.
+   - 1.0: directly useful context.
+6. Include only messages with a relevance score greater than 0.0
+   in relevant_context.
+7. Use the original zero-based message indices provided in the history.
+8. Consider both user and assistant messages, but prioritize useful
+   user-provided facts and context.
+9. Relevance is specific to the selected destination bot.
+   Do not include messages merely because they are recent.
+10. Do not infer that a message is relevant solely because it mentions
+    a product. Consider whether it helps answer the current request.
+
+Return the structured RoutingDecision.
 """
+        history_with_indices = [
+            {"index": index, **item}
+            for index, item in enumerate(history)
+        ]
 
         raw_decision = self.llm_client.generate(
             system_prompt=routing_prompt,
             message=(
-                f"Current active bot: {active_bot}\n"
-                f"User message: {message}\n"
-                'Return JSON with "target_bot", "reason", and "confidence".'
+                f"Active bot: {active_bot}\n"
+                f"Conversation history:\n"
+                f"{json.dumps(history_with_indices, ensure_ascii=False)}\n\n"
+                f"Latest user message: {message}\n\n"
+                "Choose the destination bot and score the relevance of "
+                "the previous messages for that bot."
             ),
             history=[],
             response_schema=RoutingDecision,
@@ -51,12 +80,7 @@ Return a JSON object with:
             )
 
             decision_data = json.loads(cleaned_response)
-
-            return RoutingDecision(
-                target_bot=BotName(decision_data["target_bot"]),
-                reason=decision_data["reason"],
-                confidence=decision_data["confidence"],
-            )
+            return RoutingDecision(**decision_data)
 
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as exc:
             raise ValueError(
